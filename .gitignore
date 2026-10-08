@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+
+# Xcode per-user state and build output
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+
+# Release artifacts are attached to GitHub Releases, not committed
+dist/
+*.dmg
