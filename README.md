@@ -16,7 +16,7 @@ A small, fast Markdown reader for macOS.
 
 ## Requirements
 
-macOS 27 and Xcode 27.
+Runs on macOS 13 Ventura or later. Building needs Xcode 27.
 
 ## Building
 

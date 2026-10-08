@@ -20,10 +20,21 @@ import SwiftUI
                 .defaultWindowFrame()
         }
         .defaultSize(width: 1263, height: 877)
-        .restorationBehavior(.disabled)
+        .restorationDisabled()
 
         Settings {
             SettingsView()
+        }
+    }
+}
+
+private extension Scene {
+    /// The start window shouldn't come back on relaunch. macOS 13 and 14 have no API for this.
+    func restorationDisabled() -> some Scene {
+        if #available(macOS 15, *) {
+            return restorationBehavior(.disabled)
+        } else {
+            return self
         }
     }
 }

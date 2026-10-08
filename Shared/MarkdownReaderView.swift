@@ -65,18 +65,19 @@ struct MarkdownReaderView: View {
                             onToggleTask: onToggleTask
                         )
                         .padding(.top, gap(above: block))
+                        .reportsFrame(id: block.id)
                     }
                 }
-                .scrollTargetLayout()
+                .scrollTargetLayoutIfAvailable()
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, max(0, style.horizontalMargin))
                 .padding(.vertical, 24)
             }
-            .onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.2) { visible in
-                onVisibleBlocksChange?(visible.sorted())
+            .tracksVisibleBlocks { visible in
+                onVisibleBlocksChange?(visible)
             }
-            .onChange(of: scrollRequest) {
+            .onChange(of: scrollRequest) { scrollRequest in
                 guard let scrollRequest else { return }
                 withAnimation(.easeOut(duration: 0.35)) {
                     proxy.scrollTo(scrollRequest.blockID, anchor: .top)
@@ -236,7 +237,7 @@ private struct CodeBlockView: View {
             .overlay(alignment: .topTrailing) {
                 Button(action: copy) {
                     Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
-                        .contentTransition(.symbolEffect(.replace))
+                        .symbolReplaceTransition()
                         .frame(width: 16, height: 16)
                 }
                 .buttonStyle(.borderless)
@@ -257,6 +258,92 @@ private struct CodeBlockView: View {
         Task {
             try? await Task.sleep(for: .seconds(1.5))
             didCopy = false
+        }
+    }
+}
+
+// MARK: - Compatibility with macOS 13 and 14
+
+private extension View {
+    @ViewBuilder
+    func symbolReplaceTransition() -> some View {
+        if #available(macOS 14, *) {
+            contentTransition(.symbolEffect(.replace))
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func scrollTargetLayoutIfAvailable() -> some View {
+        if #available(macOS 14, *) {
+            scrollTargetLayout()
+        } else {
+            self
+        }
+    }
+
+    /// On macOS 13 and 14, publishes the block's frame so `tracksVisibleBlocks` can work out what's on screen.
+    @ViewBuilder
+    func reportsFrame(id: Int) -> some View {
+        if #available(macOS 15, *) {
+            self
+        } else {
+            background {
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: BlockFramesKey.self,
+                        value: [id: geometry.frame(in: .named(readerScrollSpace))]
+                    )
+                }
+            }
+        }
+    }
+
+    /// Calls `action` with the IDs of the blocks that are at least 20% on screen, in document order.
+    @ViewBuilder
+    func tracksVisibleBlocks(_ action: @escaping ([Int]) -> Void) -> some View {
+        if #available(macOS 15, *) {
+            onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.2) { visible in
+                action(visible.sorted())
+            }
+        } else {
+            modifier(FrameVisibilityTracker(action: action))
+        }
+    }
+}
+
+private let readerScrollSpace = "MarkdownReaderScroll"
+
+private struct BlockFramesKey: PreferenceKey {
+    static var defaultValue: [Int: CGRect] = [:]
+
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+private struct FrameVisibilityTracker: ViewModifier {
+    let action: ([Int]) -> Void
+
+    @State private var visible: [Int] = []
+
+    func body(content: Content) -> some View {
+        GeometryReader { viewport in
+            content
+                .coordinateSpace(name: readerScrollSpace)
+                .onPreferenceChange(BlockFramesKey.self) { frames in
+                    let bounds = CGRect(origin: .zero, size: viewport.size)
+                    let ids = frames
+                        .filter { _, frame in
+                            frame.height > 0 && frame.intersection(bounds).height / frame.height >= 0.2
+                        }
+                        .map(\.key)
+                        .sorted()
+                    guard ids != visible else { return }
+                    visible = ids
+                    action(ids)
+                }
         }
     }
 }

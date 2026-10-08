@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -59,7 +60,7 @@ struct ContentView: View {
         }
         .preferredColorScheme(theme.colorScheme)
         .searchable(text: $query, placement: .toolbar, prompt: "Find")
-        .searchFocused($isSearchFocused)
+        .searchFocusedIfAvailable($isSearchFocused)
         .onSubmit(of: .search) { showMatch(currentMatch + 1) }
         .toolbar {
             if !query.isEmpty {
@@ -76,21 +77,34 @@ struct ContentView: View {
             }
         }
         .focusedSceneValue(\.findActions, FindActions(
-            find: { isSearchFocused = true },
+            find: focusSearch,
             next: { showMatch(currentMatch + 1) },
             previous: { showMatch(currentMatch - 1) },
             hasMatches: !matches.isEmpty
         ))
-        .onChange(of: document.text, initial: true) {
-            let isFirstLoad = blocks.isEmpty
-            blocks = MarkdownParser.blocks(from: document.text)
-            matches = SearchMatch.find(query, in: blocks)
-            // Long documents open with the outline showing; short ones don't need it.
-            if isFirstLoad, headings.count >= 3 { columnVisibility = .all }
-        }
-        .onChange(of: query) {
+        .onAppear(perform: reparse)
+        .onChange(of: document.text) { _ in reparse() }
+        .onChange(of: query) { _ in
             matches = SearchMatch.find(query, in: blocks)
             showMatch(0)
+        }
+    }
+
+    private func reparse() {
+        let isFirstLoad = blocks.isEmpty
+        blocks = MarkdownParser.blocks(from: document.text)
+        matches = SearchMatch.find(query, in: blocks)
+        // Long documents open with the outline showing; short ones don't need it.
+        if isFirstLoad, headings.count >= 3 { columnVisibility = .all }
+    }
+
+    /// macOS 13 and 14 can't focus a `.searchable` field from SwiftUI, so find it in the toolbar instead.
+    private func focusSearch() {
+        if #available(macOS 15, *) {
+            isSearchFocused = true
+        } else if let window = NSApp.keyWindow,
+                  let field = window.toolbar?.items.lazy.compactMap({ $0.view?.firstSubview(of: NSSearchField.self) }).first {
+            window.makeFirstResponder(field)
         }
     }
 
@@ -176,7 +190,7 @@ private struct OutlineView: View {
                 }
             }
             // Long outlines follow along, so the highlighted row never scrolls out of the sidebar.
-            .onChange(of: selectedRow) {
+            .onChange(of: selectedRow) { selectedRow in
                 guard let selectedRow else { return }
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(selectedRow) }
             }
@@ -185,13 +199,44 @@ private struct OutlineView: View {
         .background(palette?.sidebar ?? .clear)
         .overlay {
             if headings.isEmpty {
-                ContentUnavailableView("No Headings", systemImage: "list.bullet.indent")
+                if #available(macOS 14, *) {
+                    ContentUnavailableView("No Headings", systemImage: "list.bullet.indent")
+                } else {
+                    VStack(spacing: 8) {
+                        Image(systemName: "list.bullet.indent")
+                            .font(.system(size: 32))
+                        Text("No Headings")
+                            .font(.title3.weight(.semibold))
+                    }
+                    .foregroundStyle(.secondary)
+                }
             }
         }
     }
 
     private func level(of block: MarkdownBlock) -> Int {
         if case .heading(let level) = block.kind { level } else { 1 }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func searchFocusedIfAvailable(_ binding: FocusState<Bool>.Binding) -> some View {
+        if #available(macOS 15, *) {
+            searchFocused(binding)
+        } else {
+            self
+        }
+    }
+}
+
+private extension NSView {
+    func firstSubview<T: NSView>(of type: T.Type) -> T? {
+        if let match = self as? T { return match }
+        for subview in subviews {
+            if let match = subview.firstSubview(of: type) { return match }
+        }
+        return nil
     }
 }
 
