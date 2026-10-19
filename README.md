@@ -8,6 +8,7 @@ A small, fast Markdown reader for macOS.
 - Outline sidebar that follows your scroll position and jumps to any heading
 - Find in document (⌘F, ⌘G / ⇧⌘G)
 - Clickable checkboxes (`- [ ]` / `- [x]`) that save back to the file
+- Reloads automatically when the file is changed in another app
 - Paper and Dark themes, separate body and heading fonts, adjustable size, margins and spacing
 - Text zoom with ⌘+ / ⌘- / ⌘0
 - Copy button on code blocks

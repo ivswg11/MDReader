@@ -3,6 +3,8 @@ import SwiftUI
 
 struct ContentView: View {
     @Binding var document: MarkdownDocument
+    /// Where the document lives on disk; nil until a new document is saved.
+    var fileURL: URL? = nil
 
     @AppStorage(SettingsKey.horizontalMargin) private var horizontalMargin = SettingsKey.defaultHorizontalMargin
     @AppStorage(SettingsKey.textScale) private var textScale = 1.0
@@ -84,6 +86,14 @@ struct ContentView: View {
         ))
         .onAppear(perform: reparse)
         .onChange(of: document.text) { _ in reparse() }
+        .task(id: fileURL) {
+            guard let fileURL else { return }
+            for await _ in FileChanges.stream(for: fileURL) {
+                // Give the other app a moment to finish writing.
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                reloadFromDisk(fileURL)
+            }
+        }
         .onChange(of: query) { _ in
             matches = SearchMatch.find(query, in: blocks)
             showMatch(0)
@@ -92,10 +102,24 @@ struct ContentView: View {
 
     private func reparse() {
         let isFirstLoad = blocks.isEmpty
-        blocks = MarkdownParser.blocks(from: document.text)
+        blocks = MarkdownParser.blocks(from: document.text); NSLog("DEBUGRENDER %@", String(document.text.prefix(20)))
         matches = SearchMatch.find(query, in: blocks)
         // Long documents open with the outline showing; short ones don't need it.
         if isFirstLoad, headings.count >= 3 { columnVisibility = .all }
+    }
+
+    /// Picks up edits saved by other apps. Goes through the NSDocument rather than setting `document.text`,
+    /// so it also learns the new modification date and its next save doesn't report a conflict.
+    private func reloadFromDisk(_ url: URL) {
+        guard let nsDocument = NSDocumentController.shared.document(for: url),
+              // A checkbox click that hasn't been saved yet; reverting would throw it away.
+              !nsDocument.isDocumentEdited,
+              let type = nsDocument.fileType,
+              let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+              // Our own saves land here too; those are already up to date.
+              modified != nsDocument.fileModificationDate
+        else { return }
+        try? nsDocument.revert(toContentsOf: url, ofType: type)
     }
 
     /// macOS 13 and 14 can't focus a `.searchable` field from SwiftUI, so find it in the toolbar instead.

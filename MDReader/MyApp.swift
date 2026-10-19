@@ -4,7 +4,7 @@ import SwiftUI
     var body: some Scene {
         // An editing document group (not `viewing:`), so checkbox clicks can autosave back to the file.
         DocumentGroup(newDocument: MarkdownDocument()) { file in
-            ContentView(document: file.$document)
+            ContentView(document: file.$document, fileURL: file.fileURL)
                 .defaultWindowFrame()
         }
         // Matches the shape defaultWindowFrame() sizes new windows to, so the first frame doesn't jump.
