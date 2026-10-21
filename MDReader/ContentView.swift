@@ -102,7 +102,7 @@ struct ContentView: View {
 
     private func reparse() {
         let isFirstLoad = blocks.isEmpty
-        blocks = MarkdownParser.blocks(from: document.text); NSLog("DEBUGRENDER %@", String(document.text.prefix(20)))
+        blocks = MarkdownParser.blocks(from: document.text)
         matches = SearchMatch.find(query, in: blocks)
         // Long documents open with the outline showing; short ones don't need it.
         if isFirstLoad, headings.count >= 3 { columnVisibility = .all }
@@ -175,42 +175,30 @@ private struct OutlineView: View {
     let palette: ReaderPalette?
     let onSelect: (Int) -> Void
 
-    private struct Group: Identifiable {
-        let id: Int
-        var rows: [(block: MarkdownBlock, tier: Int)]
-    }
-
-    private var groups: [Group] {
+    /// One flat list, with a gap above each top-level heading instead of a `Section` per group.
+    /// Block IDs are positions, so when a live reload regroups the headings, sectioned rows move
+    /// between parents and NSOutlineView throws mid-update, which leaves the window unresponsive.
+    private var rows: [(block: MarkdownBlock, tier: Int)] {
         let topLevel = headings.map(level).min() ?? 1
-        var groups: [Group] = []
-        for heading in headings {
-            let tier = level(of: heading) - topLevel
-            guard tier <= 2 else { continue }
-            if tier == 0 || groups.isEmpty {
-                groups.append(Group(id: heading.id, rows: []))
-            }
-            groups[groups.count - 1].rows.append((heading, tier))
-        }
-        return groups
+        return headings
+            .map { ($0, level(of: $0) - topLevel) }
+            .filter { $0.1 <= 2 }
     }
 
     /// The highlighted row: the active heading, or its nearest shown parent if it's too deep to be listed.
     private var selectedRow: Int? {
         guard let activeHeading else { return nil }
-        return groups.flatMap(\.rows).last { $0.block.id <= activeHeading }?.block.id
+        return rows.last { $0.block.id <= activeHeading }?.block.id
     }
 
     var body: some View {
         ScrollViewReader { proxy in
             List(selection: Binding(get: { selectedRow }, set: { if let id = $0 { onSelect(id) } })) {
-                ForEach(groups) { group in
-                    Section {
-                        ForEach(group.rows, id: \.block.id) { row in
-                            OutlineRow(title: String(row.block.text.characters), tier: row.tier)
-                                .tag(row.block.id)
-                                .id(row.block.id)
-                        }
-                    }
+                ForEach(Array(rows.enumerated()), id: \.element.block.id) { index, row in
+                    OutlineRow(title: String(row.block.text.characters), tier: row.tier)
+                        .padding(.top, row.tier == 0 && index > 0 ? 10 : 0)
+                        .tag(row.block.id)
+                        .id(row.block.id)
                 }
             }
             // Long outlines follow along, so the highlighted row never scrolls out of the sidebar.
